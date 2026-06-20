@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist-tests",
+    "rootDir": ".",
+    "lib": ["ES2020", "DOM"],
+    "types": [],
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": [
+    "src",
+    "tests/exopredict/run_tests.ts",
+    "tests/exopredict/importers/run_importer_tests.ts",
+    "tests/exopredict/importers/run_pdf_tests.ts",
+    "tests/exopredict/assembly/run_assembly_tests.ts"
+  ]
+}
