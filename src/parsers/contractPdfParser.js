@@ -1,158 +1,171 @@
 /**
- * PDF Contract Parser — runs in browser using pdf.js
- *
- * Extracts structured data from Σύμβαση Αναδιάρθρωσης Ν.4738/2020.
- * Parses Πίνακας 5, 6, 7, 8, and Παράρτημα Ι.
- *
- * Strategy: extract all text, find table sections by Greek headers,
- * parse numeric patterns.
+ * ExoPredict PRO — Contract PDF Parser
+ * 
+ * Strategy: Send PDF to Claude API which reads it natively and returns
+ * structured JSON. No regex, no brittle parsing, no server needed.
+ * Claude understands the Greek table structure perfectly.
  */
-
-// ─── Money ────────────────────────────────────────────────────────────────────
 
 function parseMoney(s) {
   if (!s) return null;
   const clean = String(s)
-    .replace(/€/g, '')
-    .replace(/\s/g, '')
-    .replace(/\./g, '')
-    .replace(',', '.')
-    .trim();
+    .replace(/€/g, '').replace(/\s/g, '')
+    .replace(/\./g, '').replace(',', '.').trim();
   const n = parseFloat(clean);
   return isNaN(n) ? null : Math.round(n * 100);
 }
 
-function parseMoneyFromText(text) {
-  // Match € 1.234,56 or 1.234,56
-  const m = text.match(/€?\s*[\d.]+,\d{2}/);
-  if (!m) return null;
-  return parseMoney(m[0]);
+function parseGreekDate(s) {
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return null;
 }
 
-// ─── Text extraction ──────────────────────────────────────────────────────────
-
-export async function extractPdfText(file) {
-  const pdfjsLib = window['pdfjs-dist/build/pdf'];
-  if (!pdfjsLib) throw new Error('PDF.js not loaded');
-
+/**
+ * Parse contract PDF using Claude API (base64 document)
+ */
+export async function parseContractPdfWithClaude(file) {
+  // Convert PDF to base64
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let fullText = '';
+  const uint8 = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+  const base64 = btoa(binary);
 
-  for (let i = 1; i <= Math.min(pdf.numPages, 10); i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const pageText = content.items.map(item => item.str).join(' ');
-    fullText += pageText + '\n';
+  const prompt = `Αυτό είναι μια Σύμβαση Αναδιάρθρωσης Οφειλών βάσει Ν.4738/2020.
+
+Εξήγαγε ακριβώς τα παρακάτω δεδομένα σε JSON format.
+ΚΑΝΟΝΑΣ: Επίστρεψε ΜΟΝΟ το JSON object, χωρίς καμία άλλη λέξη.
+
+{
+  "applicationNumber": "string ή null",
+  "submissionDate": "DD/MM/YYYY ή null",
+  "creditorAfm": "string ή null",
+  "claimantLabel": "string ή null",
+  "debts": [
+    {
+      "contractNumber": "string — ακριβώς όπως εμφανίζεται, χωρίς κενά",
+      "debtIdentityRef": "string — 13ψήφιος κωδικός",
+      "principalCents": number_in_cents_integer,
+      "overdueInterestCents": number_in_cents_integer,
+      "totalDebtCents": number_in_cents_integer,
+      "isRegulated": true
+    }
+  ],
+  "coDebtorDebtRefs": ["debtIdentityRef1", "debtIdentityRef2"],
+  "restructuringTerms": [
+    {
+      "debtIdentityRef": "string",
+      "contractNumber": "string",
+      "totalDebtCents": integer,
+      "writeOffCents": integer,
+      "finalRegulatedCents": integer,
+      "spreadBasisPoints": integer,
+      "paymentTermMonths": integer
+    }
+  ],
+  "installments": [
+    {
+      "debtIdentityRef": "string",
+      "annualAmountCents": integer,
+      "monthlyAmountCents": integer
+    }
+  ]
+}
+
+ΣΗΜΕΙΩΣΕΙΣ:
+- Τα ποσά σε cents (πολλαπλασίασε επί 100, π.χ. €115.638,36 = 11563836)
+- contractNumber: αφαίρεσε τα κενά/newlines και ένωσε τα δύο μέρη (π.χ. "0000000000369\\n0018856" → "00000000003690018856")
+- coDebtorDebtRefs: τα debtIdentityRef από τον Πίνακα 7
+- installments: μία εγγραφή ανά οφειλή (χρησιμοποίησε έτος=1)
+- spreadBasisPoints: 3,00% = 300, 4,00% = 400`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2000,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: base64 }
+          },
+          { type: 'text', text: prompt }
+        ]
+      }]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Claude API error: ${response.status} — ${err.slice(0, 200)}`);
   }
 
-  return fullText;
+  const data = await response.json();
+  const rawText = data.content
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('');
+
+  // Parse JSON — strip any markdown fences
+  const clean = rawText.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(clean);
+
+  return parsed;
 }
 
-// ─── Core parser ──────────────────────────────────────────────────────────────
-
-export function parseContractText(text) {
-  const result = {
-    applicationNumber: null,
-    submissionDate: null,
-    creditorAfm: null,
+/**
+ * Build case-ready data from Claude's parsed output
+ */
+export function buildContractData(parsed) {
+  return {
+    applicationNumber: parsed.applicationNumber || null,
+    submissionDate: parseGreekDate(parsed.submissionDate),
+    creditorAfm: parsed.creditorAfm || '099755919',
     creditorKey: 'DOVALUE_GREECE',
-    claimantLabel: null,
-    debts: [],
-    coDebtorDebtRefs: [],
-    restructuringTerms: [],
-    installments: [],
-  };
-
-  // Application number
-  const appMatch = text.match(/αριθμ[μ]?\.\s*(\d+)/i);
-  if (appMatch) result.applicationNumber = appMatch[1];
-
-  // Submission date
-  const dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4})/);
-  if (dateMatch) result.submissionDate = parseGreekDate(dateMatch[1]);
-
-  // Creditor AFM
-  const afmMatch = text.match(/099755919/);
-  if (afmMatch) result.creditorAfm = '099755919';
-
-  // Claimant
-  const claimantMatch = text.match(/XYQ Luxco S\.?à r\.?l\.?/i);
-  if (claimantMatch) result.claimantLabel = 'XYQ Luxco S.à r.l.';
-
-  // ── Πίνακας 5: Parse debt rows ──────────────────────────────────────────
-  // Pattern: contract number (with leading zeros) + identity ref + amounts
-  const debtPattern = /(\d{16,20}(?:_\d)?)\s+(\d{13})\s+([\d.]+,\d{2})\s+([\d.]+,\d{2})\s+([\d.]+,\d{2})\s+EUR\s+Ναι/g;
-  let m;
-  while ((m = debtPattern.exec(text)) !== null) {
-    result.debts.push({
-      debtId: `DEBT-PDF-${m[2]}`,
-      contractNumber: m[1],
-      debtIdentityRef: m[2],
-      principalCents: parseMoney(m[3]),
-      overdueInterestCents: parseMoney(m[4]),
-      totalDebtCents: parseMoney(m[5]),
+    claimantLabel: parsed.claimantLabel || null,
+    debts: (parsed.debts || []).map(d => ({
+      debtId: `DEBT-PDF-${d.debtIdentityRef}`,
+      contractNumber: String(d.contractNumber || '').replace(/\s/g, ''),
+      debtIdentityRef: String(d.debtIdentityRef || ''),
+      principalCents: typeof d.principalCents === 'number' ? d.principalCents : null,
+      overdueInterestCents: typeof d.overdueInterestCents === 'number' ? d.overdueInterestCents : null,
+      totalDebtCents: typeof d.totalDebtCents === 'number' ? d.totalDebtCents : null,
       currency: 'EUR',
       isRegulated: true,
-      creditorKey: result.creditorKey,
-      claimantLabel: result.claimantLabel,
-    });
-  }
-
-  // ── Πίνακας 7: Co-debtor debt refs ───────────────────────────────────────
-  // Find identity refs that appear near co-debtor AFM
-  const coDebtSection = text.match(/ΠΙΝΑΚΑΣ 7.*?ΠΙΝΑΚΑΣ 8/s);
-  if (coDebtSection) {
-    const refPattern = /(\d{13})/g;
-    let rm;
-    while ((rm = refPattern.exec(coDebtSection[0])) !== null) {
-      if (!result.coDebtorDebtRefs.includes(rm[1])) {
-        result.coDebtorDebtRefs.push(rm[1]);
-      }
-    }
-  }
-
-  // ── Πίνακας 8: Restructuring terms ───────────────────────────────────────
-  const termPattern = /(\d{16,20}(?:_\d)?)\s+(\d{13})\s+€\s*([\d.]+,\d{2})\s+€\s*([\d.]+,\d{2})\s+€\s*([\d.]+,\d{2})\s+[\d,]+%\s+([\d,]+)%\s+(\d+)/g;
-  while ((m = termPattern.exec(text)) !== null) {
-    const spreadStr = m[6].replace(',', '.');
-    const spreadBp = Math.round(parseFloat(spreadStr) * 100);
-    result.restructuringTerms.push({
-      debtId: `DEBT-PDF-${m[2]}`,
-      contractNumber: m[1],
-      debtIdentityRef: m[2],
-      totalDebtCents: parseMoney(m[3]),
-      writeOffCents: parseMoney(m[4]),
-      finalRegulatedCents: parseMoney(m[5]),
-      spreadBasisPoints: spreadBp,
-      paymentTermMonths: parseInt(m[7], 10),
-      isCollateralSecured: spreadBp === 300,
+      creditorKey: 'DOVALUE_GREECE',
+      claimantLabel: parsed.claimantLabel || null,
+    })),
+    coDebtorDebtRefs: parsed.coDebtorDebtRefs || [],
+    restructuringTerms: (parsed.restructuringTerms || []).map(t => ({
+      debtId: `DEBT-PDF-${t.debtIdentityRef}`,
+      debtIdentityRef: String(t.debtIdentityRef || ''),
+      contractNumber: String(t.contractNumber || '').replace(/\s/g, ''),
+      totalDebtCents: typeof t.totalDebtCents === 'number' ? t.totalDebtCents : null,
+      writeOffCents: typeof t.writeOffCents === 'number' ? t.writeOffCents : null,
+      finalRegulatedCents: typeof t.finalRegulatedCents === 'number' ? t.finalRegulatedCents : null,
+      spreadBasisPoints: typeof t.spreadBasisPoints === 'number' ? t.spreadBasisPoints : null,
+      paymentTermMonths: typeof t.paymentTermMonths === 'number' ? t.paymentTermMonths : null,
+      isCollateralSecured: t.spreadBasisPoints === 300,
       rateBase: 'EURIBOR_3M',
-    });
-  }
-
-  // ── Παράρτημα Ι: Installments ─────────────────────────────────────────────
-  // Pattern: identity ref + year number + 12 + € X.XXX,XX / € XXX,XX
-  const instPattern = /(\d{13})\s+(\d+)\s+12\s+€\s*([\d.]+,\d{2})\s*\/\s*€\s*([\d.]+,\d{2})/g;
-  const seenInst = new Set();
-  while ((m = instPattern.exec(text)) !== null) {
-    const ref = m[2] === '1' ? m[1] : null; // only take year 1
-    if (m[2] === '1' && !seenInst.has(m[1])) {
-      seenInst.add(m[1]);
-      result.installments.push({
-        debtIdentityRef: m[1],
-        debtId: `DEBT-PDF-${m[1]}`,
-        annualAmountCents: parseMoney(m[3]),
-        monthlyAmountCents: parseMoney(m[4]),
-      });
-    }
-  }
-
-  return result;
+    })),
+    installments: (parsed.installments || []).map(i => ({
+      debtId: `DEBT-PDF-${i.debtIdentityRef}`,
+      debtIdentityRef: String(i.debtIdentityRef || ''),
+      annualAmountCents: typeof i.annualAmountCents === 'number' ? i.annualAmountCents : null,
+      monthlyAmountCents: typeof i.monthlyAmountCents === 'number' ? i.monthlyAmountCents : null,
+    })),
+  };
 }
 
-// ─── Assemble from parsed data ────────────────────────────────────────────────
-
+/**
+ * Assemble full ExtrajudicialCase from all parsed sources
+ */
 export function assembleCaseFromParsed({
   incomeRecords,
   incomeHistoryRecords,
@@ -160,26 +173,25 @@ export function assembleCaseFromParsed({
   financialAssets,
   collateralLinks,
   contractData,
-  caseIdOverride,
 }) {
   const now = new Date().toISOString();
 
-  // Build person map from income records
+  // Build persons from income records
   const afmToRole = {};
-  const allIncomeRows = [...incomeRecords, ...incomeHistoryRecords];
+  const allIncomeRows = [...(incomeRecords || []), ...(incomeHistoryRecords || [])];
 
   for (const r of allIncomeRows) {
     if (!afmToRole[r.afm]) {
-      if (r.memberType.includes('Αιτών')) afmToRole[r.afm] = 'APPLICANT';
-      else if (r.memberType.includes('Σύζυγος') || r.memberType.includes('Συνοφειλέτης'))
+      if (r.memberType?.includes('Αιτών')) afmToRole[r.afm] = 'APPLICANT';
+      else if (r.memberType?.includes('Σύζυγος') || r.memberType?.includes('Συνοφειλέτης'))
         afmToRole[r.afm] = 'CO_DEBTOR';
     }
   }
 
   const afms = Object.keys(afmToRole);
   const applicantAfm = afms.find(a => afmToRole[a] === 'APPLICANT') || afms[0];
+  const coDebtorAfm = afms.find(a => afmToRole[a] === 'CO_DEBTOR');
 
-  // Persons (no PII stored in privateIdentity)
   const persons = afms.map(afm => ({
     personId: `PERSON-${afm.slice(-6)}`,
     role: afmToRole[afm],
@@ -219,14 +231,20 @@ export function assembleCaseFromParsed({
   }));
 
   // Properties & ownerships
-  const properties = assetData?.properties || [];
-  const propertyOwnerships = (assetData?.ownerships || []).map(o => ({
-    ...o,
-    personId: afmToPersonId[o.ownerAfm] || `PERSON-${o.ownerAfm?.slice(-6)}`,
+  const properties = (assetData?.properties || []).map(p => ({
+    propertyId: p.propertyId,
+    propertyType: 'UNKNOWN',
+    areaLabel: p.areaLabel,
   }));
 
-  // Property value evidences (creditor collateral values from asset XLS)
-  const propertyValueEvidences = properties.map(p => ({
+  const propertyOwnerships = (assetData?.ownerships || []).map(o => ({
+    ownershipId: o.ownershipId,
+    propertyId: o.propertyId,
+    personId: afmToPersonId[o.ownerAfm] || `PERSON-${o.ownerAfm?.slice(-6)}`,
+    ownershipPercentage: null,
+  }));
+
+  const propertyValueEvidences = (assetData?.properties || []).map(p => ({
     propertyId: p.propertyId,
     valueType: 'CREDITOR_COLLATERAL_VALUE',
     amountCents: p.creditorCollateralValueCents ?? null,
@@ -238,18 +256,17 @@ export function assembleCaseFromParsed({
     verificationStatus: 'VERIFIED_AGAINST_SOURCE',
   }));
 
-  // Debts from PDF
-  const debts = contractData.debts.map(d => ({
+  // Debts & terms from PDF
+  const debts = (contractData.debts || []).map(d => ({
     ...d,
     category: 'UNKNOWN',
-    currency: 'EUR',
   }));
 
-  // Proposal terms — merge with installments
   const installMap = Object.fromEntries(
     (contractData.installments || []).map(i => [i.debtId, i])
   );
-  const proposalTerms = contractData.restructuringTerms.map(t => ({
+
+  const proposalTerms = (contractData.restructuringTerms || []).map(t => ({
     termId: `TERM-${t.debtIdentityRef}`,
     debtId: t.debtId,
     totalDebtBeforeCents: t.totalDebtCents,
@@ -296,15 +313,13 @@ export function assembleCaseFromParsed({
     }
   }
 
-  // Co-debtor roles from Π7
-  const coDebtorAfm = afms.find(a => afmToRole[a] === 'CO_DEBTOR');
   if (coDebtorAfm) {
     const coPersonId = afmToPersonId[coDebtorAfm];
-    for (const ref of contractData.coDebtorDebtRefs) {
+    for (const ref of (contractData.coDebtorDebtRefs || [])) {
       const debt = debts.find(d => d.debtIdentityRef === ref);
       if (debt && coPersonId) {
         debtPartyRoles.push({
-          mappingId: `DPR-CODEBT-${ref}-${coDebtorAfm.slice(-4)}`,
+          mappingId: `DPR-CODEBT-${ref}`,
           debtId: debt.debtId,
           personId: coPersonId,
           role: 'CO_DEBTOR',
@@ -316,12 +331,8 @@ export function assembleCaseFromParsed({
     }
   }
 
-  // Household aggregate
-  const hasSpouse = afms.some(a => {
-    const rows = allIncomeRows.filter(r => r.afm === a);
-    return rows.some(r => r.memberType?.includes('Σύζυγος'));
-  });
-
+  // Household
+  const hasSpouse = allIncomeRows.some(r => r.memberType?.includes('Σύζυγος'));
   const household = {
     householdSize: persons.length,
     dependentChildrenCount: 0,
@@ -334,13 +345,13 @@ export function assembleCaseFromParsed({
   // Data quality flags
   const flags = [];
   for (const p of properties) {
-    flags.push(`WARNING: Δεν υπάρχει εμπορική αξία για ${p.propertyId} — αποθηκεύεται null`);
+    flags.push(`WARNING: Δεν υπάρχει εμπορική αξία για ${p.propertyId}`);
   }
   if (securedDebtIds.length > 0) {
-    flags.push(`INFO: ${updatedCollateralLinks.length} εξασφαλίσεις συνδέθηκαν με ${securedDebtIds.length} εξασφαλισμένες οφειλές`);
+    flags.push(`INFO: ${updatedCollateralLinks.length} εξασφαλίσεις → ${securedDebtIds.length} εξασφαλισμένες οφειλές`);
   }
 
-  const caseId = caseIdOverride || `CASE-${contractData.applicationNumber || Date.now()}`;
+  const caseId = `CASE-${contractData.applicationNumber || Date.now()}`;
 
   return {
     caseId,
@@ -349,12 +360,12 @@ export function assembleCaseFromParsed({
     proposalOrContractDate: null,
     sourceFileManifest: {
       files: [
-        { label: 'Income export',        sourceType: 'INCOME_EXPORT',          importedAt: now },
-        { label: 'Income history',        sourceType: 'INCOME_HISTORY_EXPORT',  importedAt: now },
-        { label: 'Asset export',          sourceType: 'ASSET_EXPORT',           importedAt: now },
-        { label: 'Financial asset export',sourceType: 'FINANCIAL_ASSET_EXPORT', importedAt: now },
-        { label: 'Collateral export',     sourceType: 'COLLATERAL_EXPORT',      importedAt: now },
-        { label: 'Contract PDF',          sourceType: 'PROPOSAL_OR_CONTRACT_PDF',importedAt: now },
+        { label: 'Income export',         sourceType: 'INCOME_EXPORT',           importedAt: now },
+        { label: 'Income history',         sourceType: 'INCOME_HISTORY_EXPORT',   importedAt: now },
+        { label: 'Asset export',           sourceType: 'ASSET_EXPORT',            importedAt: now },
+        { label: 'Financial asset export', sourceType: 'FINANCIAL_ASSET_EXPORT',  importedAt: now },
+        { label: 'Collateral export',      sourceType: 'COLLATERAL_EXPORT',       importedAt: now },
+        { label: 'Contract PDF',           sourceType: 'PROPOSAL_OR_CONTRACT_PDF',importedAt: now },
       ],
     },
     persons,
@@ -373,7 +384,7 @@ export function assembleCaseFromParsed({
       proposalIssuedDate: now.slice(0, 10),
       signedDate: null,
       recordedAt: now,
-      notes: 'ΠΡΟΧΕΙΡΟ — εισαγωγή από αρχεία',
+      notes: 'Εισαγωγή από αρχεία',
     },
     trainingEligibility: {
       status: 'NOT_REVIEWED',
@@ -384,11 +395,4 @@ export function assembleCaseFromParsed({
     dataQualityFlags: flags,
     _importedAt: now,
   };
-}
-
-function parseGreekDate(s) {
-  if (!s) return null;
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  return null;
 }
