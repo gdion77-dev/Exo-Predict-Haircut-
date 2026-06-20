@@ -28,12 +28,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install dependencies
+        working-directory: exopredict-app
         run: npm install
 
       - name: Build
+        working-directory: exopredict-app
         run: npm run build
 
       - name: Setup Pages
@@ -42,7 +44,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: exopredict-app/dist
 
       - name: Deploy to GitHub Pages
         id: deployment
