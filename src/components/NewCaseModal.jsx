@@ -10,11 +10,12 @@ import {
 } from '../parsers/xlsParser.js';
 import {
   parseContractPdfWithClaude,
+  parsePublicPdfWithClaude,
   buildContractData,
   assembleCaseFromParsed,
 } from '../parsers/contractPdfParser.js';
 
-const REQUIRED_FILES = [
+const XLS_REQUIRED = [
   { key: 'income',         label: 'incomeXls.xls',          hint: 'Εισοδήματα τρέχοντος έτους',       accept: '.xls,.xlsx' },
   { key: 'incomeHistory',  label: 'incomeHistoryXls.xls',   hint: 'Ιστορικό εισοδημάτων',             accept: '.xls,.xlsx' },
   { key: 'asset',          label: 'assetXls.xls',           hint: 'Ακίνητα',                          accept: '.xls,.xlsx' },
@@ -22,7 +23,13 @@ const REQUIRED_FILES = [
   { key: 'collateral',     label: 'collateralXls.xls',      hint: 'Εξασφαλίσεις',                    accept: '.xls,.xlsx' },
   { key: 'debtsSummary',   label: 'debtsSymmaryXls.xls',    hint: 'Σύνοψη οφειλών (τράπεζες+ΑΑΔΕ+ΕΦΚΑ)', accept: '.xls,.xlsx' },
   { key: 'propertyTax',    label: 'propertyTaxBuildingXls.xls', hint: 'Φορολογητέα/αντικειμενική αξία ακινήτων', accept: '.xls,.xlsx' },
-  { key: 'contract',       label: 'Σύμβαση αναδιάρθρωσης', hint: 'PDF σύμβαση Ν.4738/2020',          accept: '.pdf' },
+];
+
+// At least ONE pdf required. Bank contract OR public (AADE/EFKA) contracts.
+const PDF_OPTIONAL = [
+  { key: 'contractBank',  label: 'Σύμβαση Τραπεζών/Servicers', hint: 'PDF — δάνεια (προαιρετικό)',  accept: '.pdf' },
+  { key: 'contractAade',  label: 'Σύμβαση ΑΑΔΕ / Δημοσίου',    hint: 'PDF — φορολογικές οφειλές (προαιρετικό)', accept: '.pdf' },
+  { key: 'contractEfka',  label: 'Σύμβαση ΕΦΚΑ / ΚΕΑΟ',        hint: 'PDF — ασφαλιστικές οφειλές (προαιρετικό)', accept: '.pdf' },
 ];
 
 async function readXls(file) {
@@ -48,7 +55,9 @@ export default function NewCaseModal({ onClose, onImport }) {
   const [error, setError] = useState('');
   const [importJson, setImportJson] = useState(false);
 
-  const allRequired = REQUIRED_FILES.every(f => files[f.key]);
+  const allXlsReady = XLS_REQUIRED.every(f => files[f.key]);
+  const atLeastOnePdf = PDF_OPTIONAL.some(f => files[f.key]);
+  const allRequired = allXlsReady && atLeastOnePdf;
 
   function pickFile(key, accept) {
     const input = document.createElement('input');
@@ -89,13 +98,44 @@ export default function NewCaseModal({ onClose, onImport }) {
       const debtSummary          = parseDebtSummaryXls(debtSumWb);
       const propertyTaxData      = parsePropertyTaxXls(propTaxWb);
 
-      setProgress('Ανάλυση PDF με AI...');
-      const claudeParsed  = await parseContractPdfWithClaude(files.contract);
-      const contractData  = buildContractData(claudeParsed);
-      contractData.debtSummary = debtSummary;
+      // ── Parse whatever PDFs are present ──
+      let contractData = {
+        applicationNumber: null, submissionDate: null,
+        creditorAfm: null, creditorKey: 'UNKNOWN', claimantLabel: null,
+        debts: [], coDebtorDebtRefs: [], restructuringTerms: [],
+        installments: [], publicDebts: [], debtSummary,
+      };
 
-      if (!contractData.debts || contractData.debts.length === 0) {
-        throw new Error('Δεν βρέθηκαν οφειλές στο PDF. Βεβαιώσου ότι ανέβασες σωστή σύμβαση αναδιάρθρωσης Ν.4738/2020.');
+      // Bank contract
+      if (files.contractBank) {
+        setProgress('Ανάλυση τραπεζικής σύμβασης...');
+        const bankParsed = await parseContractPdfWithClaude(files.contractBank);
+        const bankData = buildContractData(bankParsed);
+        contractData = { ...bankData, debtSummary, publicDebts: bankData.publicDebts || [] };
+      }
+
+      // AADE
+      if (files.contractAade) {
+        setProgress('Ανάλυση σύμβασης ΑΑΔΕ...');
+        const aadeParsed = await parsePublicPdfWithClaude(files.contractAade, 'AADE');
+        if (!contractData.applicationNumber) contractData.applicationNumber = aadeParsed.applicationNumber;
+        if (!contractData.submissionDate) contractData.submissionDate = aadeParsed.submissionDate;
+        contractData.publicDebts.push(aadeParsed.publicDebt);
+      }
+
+      // EFKA
+      if (files.contractEfka) {
+        setProgress('Ανάλυση σύμβασης ΕΦΚΑ...');
+        const efkaParsed = await parsePublicPdfWithClaude(files.contractEfka, 'EFKA');
+        if (!contractData.applicationNumber) contractData.applicationNumber = efkaParsed.applicationNumber;
+        if (!contractData.submissionDate) contractData.submissionDate = efkaParsed.submissionDate;
+        contractData.publicDebts.push(efkaParsed.publicDebt);
+      }
+
+      const hasBankDebts = contractData.debts && contractData.debts.length > 0;
+      const hasPublicDebts = contractData.publicDebts && contractData.publicDebts.length > 0;
+      if (!hasBankDebts && !hasPublicDebts) {
+        throw new Error('Δεν βρέθηκαν οφειλές σε κανένα PDF. Βεβαιώσου ότι ανέβασες σωστή σύμβαση Ν.4738/2020.');
       }
 
       setProgress('Συναρμολόγηση υπόθεσης...');
@@ -160,11 +200,13 @@ export default function NewCaseModal({ onClose, onImport }) {
             ) : (
               <div className="modal-body">
                 <p className="modal-hint">
-                  Ανέβασε τα 5 XLS exports και την PDF σύμβαση. Τα αρχεία διαβάζονται τοπικά.
-                  Το PDF αναλύεται αυτόματα με AI.
+                  Ανέβασε τα 7 XLS exports και τουλάχιστον <strong>μία</strong> σύμβαση PDF
+                  (τραπεζών, ΑΑΔΕ ή ΕΦΚΑ — όποια υπάρχει). Τα αρχεία διαβάζονται τοπικά,
+                  τα PDF αναλύονται με AI.
                 </p>
+                <div className="file-section-label">Αρχεία XLS (υποχρεωτικά)</div>
                 <div className="file-list">
-                  {REQUIRED_FILES.map(f => (
+                  {XLS_REQUIRED.map(f => (
                     <div key={f.key} className={`file-row${files[f.key] ? ' uploaded' : ''}`}>
                       <div className="file-row-left">
                         <i className={`ti ${files[f.key] ? 'ti-check' : 'ti-upload'}`}
@@ -184,6 +226,38 @@ export default function NewCaseModal({ onClose, onImport }) {
                     </div>
                   ))}
                 </div>
+
+                <div className="file-section-label" style={{ marginTop: 16 }}>
+                  Συμβάσεις PDF (τουλάχιστον μία)
+                </div>
+                <div className="file-list">
+                  {PDF_OPTIONAL.map(f => (
+                    <div key={f.key} className={`file-row${files[f.key] ? ' uploaded' : ''}`}>
+                      <div className="file-row-left">
+                        <i className={`ti ${files[f.key] ? 'ti-check' : 'ti-file-text'}`}
+                          style={{ color: files[f.key] ? 'var(--accent)' : 'var(--text-sub)', fontSize: 16 }}
+                          aria-hidden="true" />
+                        <div>
+                          <div className="file-label">{f.label}</div>
+                          <div className="file-hint">{f.hint}</div>
+                        </div>
+                      </div>
+                      <div className="file-row-right">
+                        {files[f.key]
+                          ? <span className="file-name">{files[f.key].name}</span>
+                          : <button className="btn btn-sm" onClick={() => pickFile(f.key, f.accept)}>Επιλογή</button>
+                        }
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {!atLeastOnePdf && allXlsReady && (
+                  <div className="af-hint" style={{ color: 'var(--warn)', marginTop: 10 }}>
+                    Χρειάζεται τουλάχιστον μία σύμβαση PDF.
+                  </div>
+                )}
+
                 <div className="modal-footer">
                   <button className="btn" onClick={onClose}>Ακύρωση</button>
                   <button className="btn btn-primary" disabled={!allRequired} onClick={processFiles}>

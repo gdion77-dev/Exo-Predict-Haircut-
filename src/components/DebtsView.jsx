@@ -28,7 +28,10 @@ export default function DebtsView({ c }) {
   return (
     <div className="view-content">
       <div className="view-meta">
-        {c.debts?.length || 0} οφειλές · όλες προς {c.debts?.[0]?.creditorKey || 'DOVALUE_GREECE'}
+        {(c.debts?.length || 0) > 0
+          ? `${c.debts.length} τραπεζικές οφειλές`
+          : 'Καμία τραπεζική οφειλή'}
+        {(c.publicDebts?.length || 0) > 0 && ` · ${c.publicDebts.length} δημόσιες οφειλές (ΑΑΔΕ/ΕΦΚΑ)`}
       </div>
       {(c.debts || []).map(d => {
         const t = termMap[d.debtId];
@@ -154,6 +157,15 @@ export function PublicDebtsSection({ publicDebts }) {
               <div className="data-row"><span className="row-label">Σύνολο ρυθμιζόμενης</span><span className="row-value mono">{fmtCents(pd.totalRegulatedCents)}</span></div>
               <div className="data-row"><span className="row-label">Ποσό διαγραφής</span><span className="row-value mono red">{fmtCents(pd.writeOffCents)}</span></div>
               <div className="data-row"><span className="row-label">Ποσό προς ρύθμιση</span><span className="row-value mono green">{fmtCents(pd.amountToRegulateCents)}</span></div>
+              {pd.payableInterestCents != null && (
+                <div className="data-row"><span className="row-label">Πληρωτέος τόκος</span><span className="row-value mono">{fmtCents(pd.payableInterestCents)}</span></div>
+              )}
+              {pd.paymentTermMonths != null && (
+                <div className="data-row"><span className="row-label">Διάρκεια</span><span className="row-value mono">{pd.paymentTermMonths} μήνες</span></div>
+              )}
+              {pd.monthlyInstallmentCents != null && (
+                <div className="data-row"><span className="row-label">Μηνιαία δόση (έτος 1)</span><span className="row-value mono">{fmtCents(pd.monthlyInstallmentCents)}</span></div>
+              )}
               <div className="data-row last"><span className="row-label">Συνολικό ποσό πληρωμής</span><span className="row-value mono">{fmtCents(pd.totalPaymentCents)}</span></div>
             </div>
           </div>

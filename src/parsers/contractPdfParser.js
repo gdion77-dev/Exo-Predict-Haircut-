@@ -464,3 +464,94 @@ export function assembleCaseFromParsed({
     _importedAt: now,
   };
 }
+
+/**
+ * Parse a PUBLIC creditor PDF (ΑΑΔΕ / Δημόσιο or ΕΦΚΑ / ΚΕΑΟ).
+ * These have a different structure from bank contracts — a single
+ * proposal summary table, no per-loan terms or collateral.
+ */
+export async function parsePublicPdfWithClaude(file, expectedType) {
+  const arrayBuffer = await file.arrayBuffer();
+  const uint8 = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+  const base64 = btoa(binary);
+
+  const prompt = `Αυτό είναι Διμερής Σύμβαση Αναδιάρθρωσης Οφειλών (Ν.4738/2020) προς ${expectedType === 'EFKA' ? 'Φορείς Κοινωνικής Ασφάλισης (ΚΕΑΟ/ΕΦΚΑ)' : 'το Ελληνικό Δημόσιο (ΑΑΔΕ)'}.
+
+Εξήγαγε ΜΟΝΟ το JSON, χωρίς καμία άλλη λέξη:
+
+{
+  "applicationNumber": "string — ο αριθμός αίτησης",
+  "submissionDate": "DD/MM/YYYY ή null — ημ. οριστικής υποβολής",
+  "creditorType": "${expectedType}",
+  "totalRegulatedCents": integer,
+  "writeOffCents": integer,
+  "amountToRegulateCents": integer,
+  "payableInterestCents": integer,
+  "totalPaymentCents": integer,
+  "paymentTermMonths": integer,
+  "monthlyInstallmentCents": integer,
+  "composition": {
+    "principalRegulatableCents": integer,
+    "principalNonRegulatableCents": integer,
+    "penaltyPrincipalCents": integer,
+    "surchargesCents": integer
+  }
+}
+
+ΣΗΜΕΙΩΣΕΙΣ:
+- Ποσά σε cents (€150.971,16 = 15097116)
+- ${expectedType === 'EFKA'
+    ? 'Από τον πίνακα "Όροι Αναδιάρθρωσης Οφειλών": "Βασική οφειλή προς ρύθμιση"→composition.principalRegulatableCents, "Προσαυξήσεις"→composition.surchargesCents, "Συνολική Οφειλή προς ρύθμιση"→totalRegulatedCents, "Ποσό διαγραφής"→writeOffCents, "Ποσό ρυθμιζόμενης οφειλής"→amountToRegulateCents, "Πληρωτέος Τόκος"→payableInterestCents, "Συνολικό ποσό πληρωμής"→totalPaymentCents. Το ΕΦΚΑ δεν έχει principalNonRegulatable/penalty — βάλε 0.'
+    : 'Από τον πίνακα "Πρόταση Αναδιάρθρωσης Οφειλών Ελληνικού Δημοσίου": "Βασική οφειλή με δυνατότητα διαγραφής"→composition.principalRegulatableCents, "Βασική οφειλή χωρίς δυνατότητα διαγραφής"→composition.principalNonRegulatableCents, "Βασική οφειλή από πρόστιμα"→composition.penaltyPrincipalCents, "Προσαυξήσεις"→composition.surchargesCents, "Ποσό διαγραφής/απαλλαγής"→writeOffCents, "Ποσό οφειλής προς ρύθμιση"→amountToRegulateCents, "Πληρωτέος τόκος"→payableInterestCents, "Συνολικό ποσό πληρωμής"→totalPaymentCents. Το totalRegulatedCents = principalRegulatable+principalNonRegulatable+penalty+surcharges.'}
+- Από το Δοσολόγιο: paymentTermMonths = το "Σύνολο" μηνών (π.χ. 240), monthlyInstallmentCents = το μηνιαίο ποσό του έτους 1`;
+
+  const response = await fetch('https://exopredict-proxy.gdion77.workers.dev', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: prompt }
+        ]
+      }]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Claude API error (${expectedType}): ${response.status} — ${err.slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  const clean = rawText.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(clean);
+
+  // Build a publicDebt entry compatible with the case structure
+  return {
+    applicationNumber: parsed.applicationNumber || null,
+    submissionDate: parsed.submissionDate || null,
+    publicDebt: {
+      debtId: `DEBT-PUBLIC-${expectedType}`,
+      creditorType: expectedType === 'EFKA' ? 'EFKA_GR' : 'AADE_GR',
+      creditorKey: expectedType === 'EFKA' ? 'EFKA_GR' : 'AADE_GR',
+      principalRegulatableCents: num(parsed.composition?.principalRegulatableCents),
+      principalNonRegulatableCents: num(parsed.composition?.principalNonRegulatableCents),
+      penaltyPrincipalCents: num(parsed.composition?.penaltyPrincipalCents),
+      surchargesCents: num(parsed.composition?.surchargesCents),
+      totalRegulatedCents: num(parsed.totalRegulatedCents),
+      writeOffCents: num(parsed.writeOffCents),
+      amountToRegulateCents: num(parsed.amountToRegulateCents),
+      payableInterestCents: num(parsed.payableInterestCents),
+      totalPaymentCents: num(parsed.totalPaymentCents),
+      paymentTermMonths: num(parsed.paymentTermMonths),
+      monthlyInstallmentCents: num(parsed.monthlyInstallmentCents),
+    },
+  };
+}
