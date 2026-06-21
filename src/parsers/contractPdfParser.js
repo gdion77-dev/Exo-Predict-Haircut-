@@ -82,7 +82,7 @@ export async function parseContractPdfWithClaude(file) {
 - installments: μία εγγραφή ανά οφειλή (χρησιμοποίησε έτος=1)
 - spreadBasisPoints: 3,00% = 300, 4,00% = 400`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('https://exopredict-proxy.gdion77.workers.dev', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
