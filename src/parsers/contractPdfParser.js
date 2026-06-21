@@ -72,6 +72,20 @@ export async function parseContractPdfWithClaude(file) {
       "annualAmountCents": integer,
       "monthlyAmountCents": integer
     }
+  ],
+  "publicDebts": [
+    {
+      "creditorType": "AADE ή EFKA",
+      "principalRegulatableCents": integer,
+      "principalNonRegulatableCents": integer,
+      "penaltyPrincipalCents": integer,
+      "surchargesCents": integer,
+      "totalRegulatedCents": integer,
+      "writeOffCents": integer,
+      "amountToRegulateCents": integer,
+      "payableInterestCents": integer,
+      "totalPaymentCents": integer
+    }
   ]
 }
 
@@ -80,7 +94,9 @@ export async function parseContractPdfWithClaude(file) {
 - contractNumber: αφαίρεσε τα κενά/newlines και ένωσε τα δύο μέρη (π.χ. "0000000000369\\n0018856" → "00000000003690018856")
 - coDebtorDebtRefs: τα debtIdentityRef από τον Πίνακα 7
 - installments: μία εγγραφή ανά οφειλή (χρησιμοποίησε έτος=1)
-- spreadBasisPoints: 3,00% = 300, 4,00% = 400`;
+- spreadBasisPoints: 3,00% = 300, 4,00% = 400
+- debts/restructuringTerms: ΜΟΝΟ από Πίνακες 5 και 8 (τράπεζες/servicers)
+- publicDebts: από Πίνακα 9α (ΑΑΔΕ/Δημόσιο, creditorType="AADE") και Πίνακα 9β (ΕΦΚΑ, creditorType="EFKA"). Αν ένας πίνακας λέει "Δεν υπάρχουν στοιχεία", ΜΗΝ τον συμπεριλάβεις. Στήλες 9α: "Βασική οφειλή με δυνατότητα διαγραφής"→principalRegulatableCents, "Βασική οφειλή χωρίς δυνατότητα διαγραφής"→principalNonRegulatableCents, "Βασική οφειλή από πρόστιμα"→penaltyPrincipalCents, "Προσαυξήσεις"→surchargesCents, "Σύνολο ρυθμιζόμενης οφειλής"→totalRegulatedCents, "Ποσό διαγραφής/απαλλαγής"→writeOffCents, "Ποσό οφειλής προς ρύθμιση"→amountToRegulateCents, "Πληρωτέος τόκος"→payableInterestCents, "Συνολικό ποσό πληρωμής"→totalPaymentCents`;
 
   const response = await fetch('https://exopredict-proxy.gdion77.workers.dev', {
     method: 'POST',
@@ -160,8 +176,24 @@ export function buildContractData(parsed) {
       annualAmountCents: typeof i.annualAmountCents === 'number' ? i.annualAmountCents : null,
       monthlyAmountCents: typeof i.monthlyAmountCents === 'number' ? i.monthlyAmountCents : null,
     })),
+    publicDebts: (parsed.publicDebts || []).map((pd, idx) => ({
+      debtId: `DEBT-PUBLIC-${pd.creditorType || idx}`,
+      creditorType: pd.creditorType === 'EFKA' ? 'EFKA_GR' : 'AADE_GR',
+      creditorKey: pd.creditorType === 'EFKA' ? 'EFKA_GR' : 'AADE_GR',
+      principalRegulatableCents: num(pd.principalRegulatableCents),
+      principalNonRegulatableCents: num(pd.principalNonRegulatableCents),
+      penaltyPrincipalCents: num(pd.penaltyPrincipalCents),
+      surchargesCents: num(pd.surchargesCents),
+      totalRegulatedCents: num(pd.totalRegulatedCents),
+      writeOffCents: num(pd.writeOffCents),
+      amountToRegulateCents: num(pd.amountToRegulateCents),
+      payableInterestCents: num(pd.payableInterestCents),
+      totalPaymentCents: num(pd.totalPaymentCents),
+    })),
   };
 }
+
+function num(v) { return typeof v === 'number' ? v : null; }
 
 /**
  * Assemble full ExtrajudicialCase from all parsed sources
@@ -173,6 +205,7 @@ export function assembleCaseFromParsed({
   financialAssets,
   collateralLinks,
   contractData,
+  propertyTaxData,
 }) {
   const now = new Date().toISOString();
 
@@ -231,30 +264,63 @@ export function assembleCaseFromParsed({
   }));
 
   // Properties & ownerships
-  const properties = (assetData?.properties || []).map(p => ({
-    propertyId: p.propertyId,
-    propertyType: 'UNKNOWN',
-    areaLabel: p.areaLabel,
-  }));
+  const taxByCode = propertyTaxData || {};
+  // Map propertyId -> tax record (taxByCode is keyed by code, propertyId = PROP-{code})
+  const taxByPropertyId = {};
+  for (const code in taxByCode) {
+    taxByPropertyId[taxByCode[code].propertyId] = taxByCode[code];
+  }
 
-  const propertyOwnerships = (assetData?.ownerships || []).map(o => ({
-    ownershipId: o.ownershipId,
-    propertyId: o.propertyId,
-    personId: afmToPersonId[o.ownerAfm] || `PERSON-${o.ownerAfm?.slice(-6)}`,
-    ownershipPercentage: null,
-  }));
+  const properties = (assetData?.properties || []).map(p => {
+    const tax = taxByPropertyId[p.propertyId];
+    return {
+      propertyId: p.propertyId,
+      propertyType: 'UNKNOWN',
+      areaLabel: p.areaLabel || tax?.area || null,
+      address: tax?.address || null,
+      postalCode: tax?.postalCode || null,
+    };
+  });
 
-  const propertyValueEvidences = (assetData?.properties || []).map(p => ({
-    propertyId: p.propertyId,
-    valueType: 'CREDITOR_COLLATERAL_VALUE',
-    amountCents: p.creditorCollateralValueCents ?? null,
-    range: null,
-    currency: 'EUR',
-    asOfDate: null,
-    methodDescription: 'Εκτιμώμενη αξία από ASSET_EXPORT',
-    confidence: 'MEDIUM',
-    verificationStatus: 'VERIFIED_AGAINST_SOURCE',
-  }));
+  // Ownerships: prefer tax-file percentages when available
+  const propertyOwnerships = (assetData?.ownerships || []).map(o => {
+    const tax = taxByPropertyId[o.propertyId];
+    const taxOwner = tax?.ownerships?.find(to => to.afm === o.ownerAfm);
+    return {
+      ownershipId: o.ownershipId,
+      propertyId: o.propertyId,
+      personId: afmToPersonId[o.ownerAfm] || `PERSON-${o.ownerAfm?.slice(-6)}`,
+      ownershipPercentage: taxOwner?.percentage ?? null,
+    };
+  });
+
+  // Property value evidences: servicer book value + objective/ENFIA value (auto)
+  const propertyValueEvidences = [];
+  for (const p of (assetData?.properties || [])) {
+    // Servicer book value
+    propertyValueEvidences.push({
+      propertyId: p.propertyId,
+      valueType: 'CREDITOR_COLLATERAL_VALUE',
+      amountCents: p.creditorCollateralValueCents ?? null,
+      currency: 'EUR',
+      methodDescription: 'Αξία βιβλίων από ASSET_EXPORT',
+      confidence: 'MEDIUM',
+      verificationStatus: 'VERIFIED_AGAINST_SOURCE',
+    });
+    // Objective / ENFIA value from property tax file
+    const tax = taxByPropertyId[p.propertyId];
+    if (tax && tax.objectiveValueCents != null) {
+      propertyValueEvidences.push({
+        propertyId: p.propertyId,
+        valueType: 'OBJECTIVE_OR_ENFIA_VALUE',
+        amountCents: tax.objectiveValueCents,
+        currency: 'EUR',
+        methodDescription: 'Αντικειμενική αξία από PROPERTY_TAX_EXPORT',
+        confidence: 'HIGH',
+        verificationStatus: 'VERIFIED_AGAINST_SOURCE',
+      });
+    }
+  }
 
   // Debts & terms from PDF
   const debts = (contractData.debts || []).map(d => ({
@@ -377,6 +443,8 @@ export function assembleCaseFromParsed({
     propertyValueEvidences,
     collateralLinks: updatedCollateralLinks,
     debts,
+    publicDebts: contractData.publicDebts || [],
+    debtSummary: contractData.debtSummary || [],
     debtPartyRoles,
     proposalTerms,
     outcome: {

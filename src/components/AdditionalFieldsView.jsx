@@ -213,15 +213,20 @@ export default function AdditionalFieldsView({ c, onSave }) {
         <Card style={{ marginBottom: 14 }}>
           <div className="card-title">Γ. Αξίες ακινήτων</div>
           <div className="af-hint">
-            Η αξία βιβλίων servicer έρχεται αυτόματα από το assetXls.
-            Συμπλήρωσε τις υπόλοιπες αν τις έχεις.
+            Η αξία βιβλίων servicer και η αντικειμενική/ΕΝΦΙΑ αξία έρχονται αυτόματα
+            από τα αρχεία. Συμπλήρωσε χειροκίνητα μόνο όσα λείπουν.
           </div>
           {properties.map(p => {
             const pv = af.propertyValues[p.propertyId] || {};
             const bookValue = (c.propertyValueEvidences || [])
               .find(e => e.propertyId === p.propertyId && e.valueType === 'CREDITOR_COLLATERAL_VALUE')?.amountCents;
+            // Auto ENFIA/objective value from property tax file
+            const autoEnfia = (c.propertyValueEvidences || [])
+              .find(e => e.propertyId === p.propertyId && e.valueType === 'OBJECTIVE_OR_ENFIA_VALUE')?.amountCents;
+            // Effective objective value: auto if present, else manual
+            const effectiveEnfia = autoEnfia != null ? autoEnfia : pv.objectiveOrEnfiaValueCents;
             const liq = computeLiquidationValue({
-              objectiveOrEnfiaValueCents: pv.objectiveOrEnfiaValueCents,
+              objectiveOrEnfiaValueCents: effectiveEnfia,
               creditorBookValueCents: bookValue,
             });
             return (
@@ -234,11 +239,18 @@ export default function AdditionalFieldsView({ c, onSave }) {
                   <span className="row-label">Αξία βιβλίων servicer (auto)</span>
                   <span className="row-value mono green">{bookValue != null ? fmt(bookValue) : '—'}</span>
                 </div>
-                <MoneyField label="Αντικειμενική / ΕΝΦΙΑ αξία"
-                  valueCents={pv.objectiveOrEnfiaValueCents}
-                  evidence={pv.objectiveOrEnfiaValueCents_evidence || 'unknown'}
-                  onValueChange={v => update(`propertyValues.${p.propertyId}.objectiveOrEnfiaValueCents`, v)}
-                  onEvidenceChange={v => update(`propertyValues.${p.propertyId}.objectiveOrEnfiaValueCents_evidence`, v)} />
+                {autoEnfia != null ? (
+                  <div className="data-row">
+                    <span className="row-label">Αντικειμενική / ΕΝΦΙΑ αξία (auto)</span>
+                    <span className="row-value mono green">{fmt(autoEnfia)}</span>
+                  </div>
+                ) : (
+                  <MoneyField label="Αντικειμενική / ΕΝΦΙΑ αξία"
+                    valueCents={pv.objectiveOrEnfiaValueCents}
+                    evidence={pv.objectiveOrEnfiaValueCents_evidence || 'unknown'}
+                    onValueChange={v => update(`propertyValues.${p.propertyId}.objectiveOrEnfiaValueCents`, v)}
+                    onEvidenceChange={v => update(`propertyValues.${p.propertyId}.objectiveOrEnfiaValueCents_evidence`, v)} />
+                )}
                 <MoneyField label="Ανεξάρτητη εκτίμηση"
                   valueCents={pv.independentEstimateCents}
                   evidence={pv.independentEstimateCents_evidence || 'unknown'}

@@ -105,6 +105,65 @@ export default function DebtsView({ c }) {
           </div>
         );
       })}
+      <PublicDebtsSection publicDebts={c.publicDebts} />
     </div>
   );
+}
+
+// ── Public debts (ΑΑΔΕ / ΕΦΚΑ) sub-component ────────────────────────────────
+export function PublicDebtsSection({ publicDebts }) {
+  if (!publicDebts || publicDebts.length === 0) return null;
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div className="section-title">Οφειλές προς Δημόσιο ({publicDebts.length})</div>
+      {publicDebts.map((pd, i) => {
+        const label = pd.creditorType === 'EFKA_GR' ? 'ΕΦΚΑ' : 'ΑΑΔΕ / Δημόσιο';
+        const woPct = pd.totalRegulatedCents
+          ? Math.round((pd.writeOffCents / pd.totalRegulatedCents) * 100) : 0;
+        return (
+          <div key={i} className="debt-card">
+            <div className="debt-card-header">
+              <span className="identity">{label}</span>
+              <span className="tag tag-info">Δημόσιο</span>
+            </div>
+            {pd.totalRegulatedCents > 0 && (
+              <div className="haircut-wrap">
+                <div className="haircut-labels">
+                  <span>Διαγραφή {woPct}%</span>
+                  <span>Ρύθμιση {100 - woPct}%</span>
+                </div>
+                <div className="haircut-bar">
+                  <div className="haircut-red" style={{ width: `${woPct}%` }} />
+                  <div className="haircut-green" style={{ width: `${100 - woPct}%` }} />
+                </div>
+              </div>
+            )}
+            <div className="debt-card-rows">
+              {pd.principalRegulatableCents != null && (
+                <div className="data-row"><span className="row-label">Βασική (διαγράψιμη)</span><span className="row-value mono">{fmtCents(pd.principalRegulatableCents)}</span></div>
+              )}
+              {pd.principalNonRegulatableCents ? (
+                <div className="data-row"><span className="row-label">Βασική (μη διαγράψιμη — φόροι)</span><span className="row-value mono">{fmtCents(pd.principalNonRegulatableCents)}</span></div>
+              ) : null}
+              {pd.penaltyPrincipalCents ? (
+                <div className="data-row"><span className="row-label">Πρόστιμα</span><span className="row-value mono">{fmtCents(pd.penaltyPrincipalCents)}</span></div>
+              ) : null}
+              {pd.surchargesCents ? (
+                <div className="data-row"><span className="row-label">Προσαυξήσεις</span><span className="row-value mono">{fmtCents(pd.surchargesCents)}</span></div>
+              ) : null}
+              <div className="data-row"><span className="row-label">Σύνολο ρυθμιζόμενης</span><span className="row-value mono">{fmtCents(pd.totalRegulatedCents)}</span></div>
+              <div className="data-row"><span className="row-label">Ποσό διαγραφής</span><span className="row-value mono red">{fmtCents(pd.writeOffCents)}</span></div>
+              <div className="data-row"><span className="row-label">Ποσό προς ρύθμιση</span><span className="row-value mono green">{fmtCents(pd.amountToRegulateCents)}</span></div>
+              <div className="data-row last"><span className="row-label">Συνολικό ποσό πληρωμής</span><span className="row-value mono">{fmtCents(pd.totalPaymentCents)}</span></div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function fmtCents(c) {
+  if (c === null || c === undefined) return '—';
+  return '€\u00A0' + (c / 100).toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

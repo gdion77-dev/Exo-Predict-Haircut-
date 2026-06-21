@@ -142,10 +142,16 @@ export const DEMO_CASE = {
     { propertyId: "PROP-90893", propertyType: "UNKNOWN", areaLabel: "ΚΑΡΛΟΒΑΣΙ ΣΑΜΟΥ" },
   ],
   propertyOwnerships: [
-    { ownershipId: "OWN-73766-9350", propertyId: "PROP-73766", personId: "PERSON-909350", ownershipPercentage: null },
-    { ownershipId: "OWN-73766-1914", propertyId: "PROP-73766", personId: "PERSON-551914", ownershipPercentage: null },
-    { ownershipId: "OWN-90893-9350", propertyId: "PROP-90893", personId: "PERSON-909350", ownershipPercentage: null },
-    { ownershipId: "OWN-90893-1914", propertyId: "PROP-90893", personId: "PERSON-551914", ownershipPercentage: null },
+    { ownershipId: "OWN-73766-9350", propertyId: "PROP-73766", personId: "PERSON-909350", ownershipPercentage: 50 },
+    { ownershipId: "OWN-73766-1914", propertyId: "PROP-73766", personId: "PERSON-551914", ownershipPercentage: 50 },
+    { ownershipId: "OWN-90893-9350", propertyId: "PROP-90893", personId: "PERSON-909350", ownershipPercentage: 50 },
+    { ownershipId: "OWN-90893-1914", propertyId: "PROP-90893", personId: "PERSON-551914", ownershipPercentage: 50 },
+  ],
+  propertyValueEvidences: [
+    { propertyId: "PROP-73766", valueType: "CREDITOR_COLLATERAL_VALUE", amountCents: 8500000, currency: "EUR", confidence: "MEDIUM" },
+    { propertyId: "PROP-73766", valueType: "OBJECTIVE_OR_ENFIA_VALUE",  amountCents: 7344558, currency: "EUR", confidence: "HIGH" },
+    { propertyId: "PROP-90893", valueType: "CREDITOR_COLLATERAL_VALUE", amountCents: 6200000, currency: "EUR", confidence: "MEDIUM" },
+    { propertyId: "PROP-90893", valueType: "OBJECTIVE_OR_ENFIA_VALUE",  amountCents: 4609920, currency: "EUR", confidence: "HIGH" },
   ],
   collateralLinks: [
     { collateralId: "COL-00240369", propertyId: "PROP-73766", coveredDebtIds: ["DEBT-PDF-0407930211855","DEBT-PDF-0407910211900","DEBT-PDF-0407910211901"], registrationPriority: 1 },
@@ -164,6 +170,22 @@ export const DEMO_CASE = {
     { assetId: "FIN-22380-0", institutionKey: "ALPHA_BANK_GR", assetType: "BANK_DEPOSIT", balanceCents: 0, currency: "EUR", asOfDate: "2025-09-30" },
     { assetId: "FIN-18285-1", institutionKey: "ALPHA_BANK_GR", assetType: "BANK_DEPOSIT", balanceCents: 814, currency: "EUR", asOfDate: "2025-09-30" },
     { assetId: "FIN-94553-2", institutionKey: "EUROBANK_GR",   assetType: "BANK_DEPOSIT", balanceCents: 2344, currency: "EUR", asOfDate: "2025-10-18" },
+  ],
+  publicDebts: [
+    {
+      debtId: "DEBT-PUBLIC-AADE",
+      creditorType: "AADE_GR",
+      creditorKey: "AADE_GR",
+      principalRegulatableCents: 205036,
+      principalNonRegulatableCents: 0,
+      penaltyPrincipalCents: 50000,
+      surchargesCents: 5872,
+      totalRegulatedCents: 260908,
+      writeOffCents: 197155,
+      amountToRegulateCents: 63753,
+      payableInterestCents: 1047,
+      totalPaymentCents: 64800,
+    },
   ],
   dataQualityFlags: [
     "WARNING: Δεν υπάρχει εμπορική αξία για PROP-73766 — αποθηκεύεται null",

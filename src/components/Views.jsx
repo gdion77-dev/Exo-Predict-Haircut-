@@ -19,12 +19,14 @@ export function AssetsView({ c }) {
               <Tag label="Ακίνητο" variant="muted" />
             </div>
             <Row label="Περιοχή" value={p.areaLabel || '—'} />
+            {p.address && <Row label="Διεύθυνση" value={p.address} />}
             <div className="data-row">
               <span className="row-label">Συνιδιοκτήτες ({owners.length})</span>
               <div className="tag-row">
                 {owners.map(o => (
                   <span key={o.personId} className="tag tag-muted" style={{ fontSize: 11 }}>
                     {roleLabel[personRoles[o.personId]] || 'Πρόσωπο'} · {o.personId}
+                    {o.ownershipPercentage != null && ` · ${o.ownershipPercentage}%`}
                   </span>
                 ))}
               </div>
@@ -38,13 +40,31 @@ export function AssetsView({ c }) {
               </div>
             </div>
             {(() => {
-              const bookVal = (c.propertyValueEvidences || [])
-                .find(e => e.propertyId === p.propertyId && e.valueType === 'CREDITOR_COLLATERAL_VALUE')?.amountCents;
+              const evid = c.propertyValueEvidences || [];
+              const bookVal = evid.find(e => e.propertyId === p.propertyId && e.valueType === 'CREDITOR_COLLATERAL_VALUE')?.amountCents;
+              const enfiaVal = evid.find(e => e.propertyId === p.propertyId && e.valueType === 'OBJECTIVE_OR_ENFIA_VALUE')?.amountCents;
+              const liq = (() => {
+                const book = bookVal != null ? Math.round(bookVal * 0.97) : null;
+                if (enfiaVal == null && book == null) return null;
+                if (enfiaVal == null) return book;
+                if (book == null) return enfiaVal;
+                return Math.max(enfiaVal, book);
+              })();
               return (
-                <div className="data-row" style={{ borderBottom: 'none' }}>
-                  <span className="row-label">Αξία βιβλίων servicer</span>
-                  <span className="row-value mono green">{bookVal != null ? fmt(bookVal) : '—'}</span>
-                </div>
+                <>
+                  <div className="data-row">
+                    <span className="row-label">Αξία βιβλίων servicer</span>
+                    <span className="row-value mono">{bookVal != null ? fmt(bookVal) : '—'}</span>
+                  </div>
+                  <div className="data-row">
+                    <span className="row-label">Αντικειμενική / ΕΝΦΙΑ αξία</span>
+                    <span className="row-value mono">{enfiaVal != null ? fmt(enfiaVal) : '—'}</span>
+                  </div>
+                  <div className="data-row" style={{ borderBottom: 'none' }}>
+                    <span className="row-label"><strong>Αξία ρευστοποίησης</strong></span>
+                    <span className="row-value mono green">{liq != null ? fmt(liq) : '—'}</span>
+                  </div>
+                </>
               );
             })()}
           </Card>

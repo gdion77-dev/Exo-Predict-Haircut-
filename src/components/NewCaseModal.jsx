@@ -5,6 +5,8 @@ import {
   parseAssetXls,
   parseFinancialAssetXls,
   parseCollateralXls,
+  parseDebtSummaryXls,
+  parsePropertyTaxXls,
 } from '../parsers/xlsParser.js';
 import {
   parseContractPdfWithClaude,
@@ -18,6 +20,8 @@ const REQUIRED_FILES = [
   { key: 'asset',          label: 'assetXls.xls',           hint: 'Ακίνητα',                          accept: '.xls,.xlsx' },
   { key: 'financialAsset', label: 'financialAssetXls.xls',  hint: 'Χρηματοοικονομικά στοιχεία',      accept: '.xls,.xlsx' },
   { key: 'collateral',     label: 'collateralXls.xls',      hint: 'Εξασφαλίσεις',                    accept: '.xls,.xlsx' },
+  { key: 'debtsSummary',   label: 'debtsSymmaryXls.xls',    hint: 'Σύνοψη οφειλών (τράπεζες+ΑΑΔΕ+ΕΦΚΑ)', accept: '.xls,.xlsx' },
+  { key: 'propertyTax',    label: 'propertyTaxBuildingXls.xls', hint: 'Φορολογητέα/αντικειμενική αξία ακινήτων', accept: '.xls,.xlsx' },
   { key: 'contract',       label: 'Σύμβαση αναδιάρθρωσης', hint: 'PDF σύμβαση Ν.4738/2020',          accept: '.pdf' },
 ];
 
@@ -74,16 +78,21 @@ export default function NewCaseModal({ onClose, onImport }) {
       const assetWb    = await readXls(files.asset);
       const financialWb = await readXls(files.financialAsset);
       const collWb     = await readXls(files.collateral);
+      const debtSumWb  = await readXls(files.debtsSummary);
+      const propTaxWb  = await readXls(files.propertyTax);
 
       const incomeRecords        = parseIncomeXls(incomeWb, 'INCOME_EXPORT');
       const incomeHistoryRecords = parseIncomeHistoryXls(incomeHistoryWb);
       const assetData            = parseAssetXls(assetWb);
       const financialAssets      = parseFinancialAssetXls(financialWb);
       const collateralLinks      = parseCollateralXls(collWb);
+      const debtSummary          = parseDebtSummaryXls(debtSumWb);
+      const propertyTaxData      = parsePropertyTaxXls(propTaxWb);
 
       setProgress('Ανάλυση PDF με AI...');
       const claudeParsed  = await parseContractPdfWithClaude(files.contract);
       const contractData  = buildContractData(claudeParsed);
+      contractData.debtSummary = debtSummary;
 
       if (!contractData.debts || contractData.debts.length === 0) {
         throw new Error('Δεν βρέθηκαν οφειλές στο PDF. Βεβαιώσου ότι ανέβασες σωστή σύμβαση αναδιάρθρωσης Ν.4738/2020.');
@@ -93,7 +102,7 @@ export default function NewCaseModal({ onClose, onImport }) {
       const assembled = assembleCaseFromParsed({
         incomeRecords, incomeHistoryRecords,
         assetData, financialAssets, collateralLinks,
-        contractData,
+        contractData, propertyTaxData,
       });
 
       setStep('done');

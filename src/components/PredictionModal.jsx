@@ -5,6 +5,9 @@ import {
   parseAssetXls,
   parseFinancialAssetXls,
   parseCollateralXls,
+  parseDebtSummaryXls,
+  buildDebtsFromSummary,
+  parsePropertyTaxXls,
 } from '../parsers/xlsParser.js';
 import { assembleCaseFromParsed } from '../parsers/contractPdfParser.js';
 
@@ -14,6 +17,8 @@ const XLS_FILES = [
   { key: 'asset',          label: 'assetXls.xls',          hint: 'Ακίνητα',                     accept: '.xls,.xlsx' },
   { key: 'financialAsset', label: 'financialAssetXls.xls', hint: 'Χρηματοοικονομικά στοιχεία', accept: '.xls,.xlsx' },
   { key: 'collateral',     label: 'collateralXls.xls',     hint: 'Εξασφαλίσεις',               accept: '.xls,.xlsx' },
+  { key: 'debtsSummary',   label: 'debtsSymmaryXls.xls',   hint: 'Σύνοψη οφειλών (τράπεζες+ΑΑΔΕ+ΕΦΚΑ)', accept: '.xls,.xlsx' },
+  { key: 'propertyTax',    label: 'propertyTaxBuildingXls.xls', hint: 'Φορολογητέα/αντικειμενική αξία ακινήτων', accept: '.xls,.xlsx' },
 ];
 
 async function readXls(file) {
@@ -67,29 +72,36 @@ export default function PredictionModal({ onClose, onSave }) {
       const assetWb          = await readXls(files.asset);
       const financialWb      = await readXls(files.financialAsset);
       const collWb           = await readXls(files.collateral);
+      const debtSumWb        = await readXls(files.debtsSummary);
+      const propTaxWb        = await readXls(files.propertyTax);
 
       const incomeRecords        = parseIncomeXls(incomeWb, 'INCOME_EXPORT');
       const incomeHistoryRecords = parseIncomeHistoryXls(incomeHistoryWb);
       const assetData            = parseAssetXls(assetWb);
       const financialAssets      = parseFinancialAssetXls(financialWb);
       const collateralLinks      = parseCollateralXls(collWb);
+      const debtSummary          = parseDebtSummaryXls(debtSumWb);
+      const summaryDebts         = buildDebtsFromSummary(debtSummary);
+      const propertyTaxData      = parsePropertyTaxXls(propTaxWb);
 
       setProgress('Συναρμολόγηση...');
 
-      // Build case without contract data
+      // Build case from debt summary (no contract/PDF available)
       const assembled = assembleCaseFromParsed({
         incomeRecords,
         incomeHistoryRecords,
         assetData,
         financialAssets,
         collateralLinks,
+        propertyTaxData,
         contractData: {
           applicationNumber: caseIdInput || String(Date.now()),
           submissionDate: null,
           creditorAfm: null,
           creditorKey: 'UNKNOWN',
           claimantLabel: null,
-          debts: [],
+          debts: summaryDebts,
+          debtSummary: debtSummary,
           coDebtorDebtRefs: [],
           restructuringTerms: [],
           installments: [],
