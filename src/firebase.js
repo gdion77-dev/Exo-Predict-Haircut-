@@ -1,5 +1,8 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import {
+  getFirestore, collection, doc,
+  setDoc, getDocs, deleteDoc, updateDoc
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBATdE80ZPM4QNjmfxBaqgB2GQsbjLcX_Y",
@@ -12,20 +15,43 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const CASES_COLLECTION = 'cases';
 
-export async function saveCase(caseData) {
-  const ref = doc(db, CASES_COLLECTION, caseData.caseId);
-  await setDoc(ref, caseData);
+// ── Cases (training data — with PDF) ─────────────────────────────────────────
+export async function saveCase(data) {
+  await setDoc(doc(db, 'cases', data.caseId), data);
 }
 
 export async function loadAllCases() {
-  const snapshot = await getDocs(collection(db, CASES_COLLECTION));
-  const cases = {};
-  snapshot.forEach(d => { cases[d.id] = d.data(); });
-  return cases;
+  const snap = await getDocs(collection(db, 'cases'));
+  const out = {};
+  snap.forEach(d => { out[d.id] = d.data(); });
+  return out;
 }
 
 export async function deleteCase(caseId) {
-  await deleteDoc(doc(db, CASES_COLLECTION, caseId));
+  await deleteDoc(doc(db, 'cases', caseId));
+}
+
+export async function updateCaseField(caseId, fields) {
+  await updateDoc(doc(db, 'cases', caseId), fields);
+}
+
+// ── Predictions (XLS only — no PDF) ──────────────────────────────────────────
+export async function savePrediction(data) {
+  await setDoc(doc(db, 'predictions', data.caseId), data);
+}
+
+export async function loadAllPredictions() {
+  const snap = await getDocs(collection(db, 'predictions'));
+  const out = {};
+  snap.forEach(d => { out[d.id] = d.data(); });
+  return out;
+}
+
+export async function deletePrediction(caseId) {
+  await deleteDoc(doc(db, 'predictions', caseId));
+}
+
+export async function updatePredictionField(caseId, fields) {
+  await updateDoc(doc(db, 'predictions', caseId), fields);
 }

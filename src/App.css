@@ -816,3 +816,68 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 180px;
 }
+
+/* ── Sidebar tabs ─────────────────────────────────────────────────────────── */
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-tab {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  gap: 5px; padding: 10px 6px; background: none; border: none;
+  border-bottom: 2px solid transparent; color: var(--text-sub);
+  font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: all .15s; margin-bottom: -1px;
+}
+
+.sidebar-tab:hover { color: var(--text); }
+.sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.sidebar-tab-count {
+  background: var(--border); color: var(--text-sub);
+  border-radius: 10px; padding: 1px 6px; font-size: 10px;
+}
+
+.sidebar-tab.active .sidebar-tab-count {
+  background: rgba(0,200,150,.2); color: var(--accent);
+}
+
+/* ── Welcome cards ───────────────────────────────────────────────────────── */
+.welcome-cards {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-bottom: 20px; max-width: 440px; width: 100%;
+}
+
+.welcome-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px; text-align: center;
+  cursor: pointer; transition: all .15s;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+
+.welcome-card:hover { border-color: var(--accent); background: var(--panel-alt); }
+.welcome-card-title { font-size: 14px; font-weight: 600; }
+.welcome-card-sub { font-size: 11px; color: var(--text-sub); line-height: 1.6; }
+
+/* ── Prediction result ───────────────────────────────────────────────────── */
+.pred-result-card {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; padding: 40px 20px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.pred-result-title {
+  font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+  color: var(--text); margin-bottom: 8px;
+}
+
+.pred-result-sub { font-size: 13px; color: var(--text-sub); max-width: 320px; line-height: 1.6; }
+.pred-progress { width: 100%; max-width: 280px; }
+
+/* ── Warn badge ──────────────────────────────────────────────────────────── */
+.badge-warn {
+  background: rgba(240,192,64,.12); color: var(--warn);
+  border-color: rgba(240,192,64,.3);
+}
