@@ -10,6 +10,8 @@ export function AssetsView({ c }) {
       {c.properties.map(p => {
         const links = c.collateralLinks.filter(l => l.propertyId === p.propertyId);
         const owners = c.propertyOwnerships.filter(o => o.propertyId === p.propertyId);
+        const personRoles = Object.fromEntries((c.persons || []).map(pr => [pr.personId, pr.role]));
+        const roleLabel = { APPLICANT: 'Αιτών', CO_DEBTOR: 'Συνοφειλέτης', SPOUSE: 'Σύζυγος', GUARANTOR: 'Εγγυητής' };
         return (
           <Card key={p.propertyId} style={{ marginBottom: 12 }}>
             <div className="asset-header">
@@ -17,7 +19,16 @@ export function AssetsView({ c }) {
               <Tag label="Ακίνητο" variant="muted" />
             </div>
             <Row label="Περιοχή" value={p.areaLabel || '—'} />
-            <Row label="Ιδιοκτήτες" value={`${owners.length} συνιδιοκτήτες`} />
+            <div className="data-row">
+              <span className="row-label">Συνιδιοκτήτες ({owners.length})</span>
+              <div className="tag-row">
+                {owners.map(o => (
+                  <span key={o.personId} className="tag tag-muted" style={{ fontSize: 11 }}>
+                    {roleLabel[personRoles[o.personId]] || 'Πρόσωπο'} · {o.personId}
+                  </span>
+                ))}
+              </div>
+            </div>
             <div className="data-row">
               <span className="row-label">Εξασφαλίσεις</span>
               <div className="tag-row">
@@ -26,10 +37,16 @@ export function AssetsView({ c }) {
                 ))}
               </div>
             </div>
-            <div className="asset-warning">
-              <i className="ti ti-alert-triangle" aria-hidden="true" />
-              Δεν υπάρχει τεκμηριωμένη εμπορική αξία
-            </div>
+            {(() => {
+              const bookVal = (c.propertyValueEvidences || [])
+                .find(e => e.propertyId === p.propertyId && e.valueType === 'CREDITOR_COLLATERAL_VALUE')?.amountCents;
+              return (
+                <div className="data-row" style={{ borderBottom: 'none' }}>
+                  <span className="row-label">Αξία βιβλίων servicer</span>
+                  <span className="row-value mono green">{bookVal != null ? fmt(bookVal) : '—'}</span>
+                </div>
+              );
+            })()}
           </Card>
         );
       })}

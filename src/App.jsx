@@ -9,6 +9,8 @@ import { Tag } from './components/UI.jsx';
 import OverviewView from './components/OverviewView.jsx';
 import DebtsView from './components/DebtsView.jsx';
 import { AssetsView, IncomeView, TrainingView } from './components/Views.jsx';
+import PersonsView from './components/PersonsView.jsx';
+import AdditionalFieldsView from './components/AdditionalFieldsView.jsx';
 import NewCaseModal from './components/NewCaseModal.jsx';
 import PredictionModal from './components/PredictionModal.jsx';
 import './App.css';
@@ -17,7 +19,9 @@ const CASE_VIEWS = [
   { id: 'overview', label: 'Επισκόπηση', icon: 'ti-layout-dashboard' },
   { id: 'debts',    label: 'Οφειλές',    icon: 'ti-credit-card' },
   { id: 'assets',   label: 'Ακίνητα',    icon: 'ti-building' },
+  { id: 'persons',  label: 'Πρόσωπα',    icon: 'ti-users' },
   { id: 'income',   label: 'Εισοδήματα', icon: 'ti-receipt' },
+  { id: 'extra',    label: 'Πρόσθετα',   icon: 'ti-clipboard-plus' },
   { id: 'training', label: 'Training',   icon: 'ti-brain' },
 ];
 
@@ -25,6 +29,7 @@ const PRED_VIEWS = [
   { id: 'overview', label: 'Επισκόπηση', icon: 'ti-layout-dashboard' },
   { id: 'income',   label: 'Εισοδήματα', icon: 'ti-receipt' },
   { id: 'assets',   label: 'Ακίνητα',    icon: 'ti-building' },
+  { id: 'persons',  label: 'Πρόσωπα',    icon: 'ti-users' },
   { id: 'result',   label: 'Αποτέλεσμα', icon: 'ti-crystal-ball' },
 ];
 
@@ -145,6 +150,12 @@ export default function App() {
       await updateCurrentPred({ ...currentPred, notes: noteValue });
     }
     setEditingNote(false);
+  }
+
+  async function saveAdditionalFields(fields) {
+    const updated = { ...current, additionalFields: fields };
+    if (sidebarTab === 'cases') await updateCurrentCase(updated);
+    else await updateCurrentPred(updated);
   }
 
   function startEditNote() {
@@ -370,7 +381,9 @@ export default function App() {
               {activeView === 'overview' && <OverviewView c={current} />}
               {activeView === 'debts'    && <DebtsView    c={current} />}
               {activeView === 'assets'   && <AssetsView   c={current} />}
+              {activeView === 'persons'  && <PersonsView  c={current} />}
               {activeView === 'income'   && <IncomeView   c={current} />}
+              {activeView === 'extra'    && <AdditionalFieldsView c={current} onSave={saveAdditionalFields} />}
               {activeView === 'training' && sidebarTab === 'cases' && (
                 <TrainingView c={current} onApprove={approve} onExclude={exclude} />
               )}
